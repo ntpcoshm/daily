@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>車輛作業前自動檢查表</title>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 10px; background: #f4f4f9; color: #111; margin: 0; }
+    .container { max-width: 600px; margin: auto; background: white; padding: 20px 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    h2 { color: #2c3e50; text-align: center; margin-bottom: 20px; font-size: 26px; border-bottom: 3px solid #3498db; padding-bottom: 12px; font-weight: 900;}
+    .form-group { margin-bottom: 25px; border-bottom: 1px dashed #ddd; padding-bottom: 15px; }
+    label { display: block; margin-bottom: 8px; font-weight: 900; font-size: 22px; color: #000;}
+    input[type="text"], select, textarea { width: 100%; padding: 14px; border: 2px solid #aaa; border-radius: 8px; box-sizing: border-box; font-size: 20px; background: #fff;}
+    input:read-only { background-color: #e9ecef; color: #333; }
+    .canvas-container { border: 3px dashed #3498db; border-radius: 8px; background: #fafafa; margin-bottom: 10px; }
+    canvas { width: 100%; height: 200px; display: block; touch-action: none; cursor: crosshair; }
+    .clear-btn { background: #95a5a6; color: white; border: none; padding: 12px 15px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; margin-top: 5px;}
+    .btn-submit { width: 100%; padding: 20px; background: #3498db; color: white; border: none; border-radius: 10px; font-size: 24px; font-weight: 900; cursor: pointer; margin-top: 10px; transition: 0.3s; }
+    .btn-submit:disabled { background: #95a5a6; cursor: not-allowed; }
+    #loading { text-align: center; padding: 30px 10px; font-size: 20px; font-weight: bold; color: #d35400;}
+    .hidden { display: none; }
+    .status-layout { display: flex; gap: 10px; margin-top: 10px; }
+    .btn-status { background: white; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.2s; display: flex; align-items: center; justify-content: center; color: #555;}
+    
+    /* 點擊後的狀態顏色 */
+    .btn-status.active-main { background: #27ae60; border-color: #27ae60; color: white; }
+    .btn-status.active-sub-1 { background: #e74c3c; border-color: #e74c3c; color: white; }
+    .btn-status.active-sub-2 { background: #7f8c8d; border-color: #7f8c8d; color: white; }
+    
+    .btn-main { flex: 2; font-size: 26px; padding: 20px 10px; letter-spacing: 2px;}
+    .side-group { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+    .btn-side { flex: 1; font-size: 16px; padding: 10px; }
+    
+    .required-star { color: red; font-size: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>📋 車輛作業前自動檢查表</h2>
+    
+    <div id="loading">🔄 系統初始化與車輛資料載入中...</div>
+
+    <!-- 初次綁定畫面 -->
+    <div id="registerBox" class="hidden">
+      <h3>👋 歡迎使用！請進行初次綁定</h3>
+      <div class="form-group" style="border:none; padding-bottom: 5px;">
+        <label>所屬區隊：</label>
+        <select id="regSquad" required>
+          <option value="">-- 請選擇您的區隊 --</option>
+        </select>
+      </div>
+      <div class="form-group" style="border:none;">
+        <label>真實姓名：</label>
+        <input type="text" id="regName" placeholder="例如：王小明" required>
+      </div>
+      <button type="button" class="btn-submit" style="background:#27ae60;" onclick="submitRegistration(event)">完成綁定並進入</button>
+    </div>
+
+    <!-- 作業前檢查主表單 -->
+    <form id="checkForm" class="hidden" onsubmit="submitForm(event)">
+      <div class="form-group">
+        <label>所屬區隊：</label>
+        <input type="text" id="squadName" readonly required>
+      </div>
+      <div class="form-group">
+        <label>檢查人員：</label>
+        <input type="text" id="driverName" readonly required>
+      </div>
+      
+      <!-- 動態車種選擇 -->
+      <div class="form-group">
+        <label>車輛種類：</label>
+        <select id="vehicleType" required onchange="renderChecklist()">
+          <option value="">-- 請選擇車種 --</option>
+          <option value="一般車輛">一般車輛</option>
+          <option value="抓斗車">抓斗車 (移動式起重機)</option>
+          <option value="鏟裝機、挖掘機">鏟裝機、挖掘機</option>
+          <option value="高空工作車">高空工作車</option>
+          <option value="堆高機">堆高機</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>車牌號碼：</label>
+        <select id="vehicleId" required>
+          <option value="">-- 請先選擇上方車種 --</option>
+        </select>
+      </div>
+      
+      <!-- 檢查項目區塊 (動態生成) -->
+      <div id="inspectionItems"></div>
+
+      <!-- 改善措施 (智慧動態必填) -->
+      <div class="form-group" id="measureGroup" style="display:none;">
+        <label id="measureNoteLabel">依檢查結果應採取改善措施之內容：</label>
+        <textarea id="measureNote" rows="3" placeholder="若無特殊狀況可留空..."></textarea>
+      </div>
+
+      <div class="form-group" style="border: none; padding-bottom: 0;">
+        <label>✍️ 檢查人員親筆簽名 (必填)：</label>
+        <div class="canvas-container"><canvas id="sigCanvas"></canvas></div>
+        <button type="button" class="clear-btn" onclick="clearCanvas()">✖ 清除重新簽名</button>
+      </div>
+
+      <button type="submit" id="submitBtn" class="btn-submit">確認送出檢查表</button>
+    </form>
+  </div>
+
+  <script>
+    // ⚠️ 舊的 GAS 網址 (日檢跟季檢共用)
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbwOy47jQehglAT1MgdEOieU2bs_CP2j69UTm7zOrO5ukVyhT-f1xLMiwowgDaTRcjzUmg/exec"; 
+    // ⚠️⚠️⚠️ 請在此填入您的「全新」作業前檢查專用 LIFF ID ⚠️⚠️⚠️
+    const LIFF_ID = "2012500827-OvcHEqvG"; 
+    
+    let globalVehicleData = {};
+    let currentUserId = "";
+
+    // 完整的五大車輛題庫字典
+    const vehicleChecklists = {
+      "一般車輛": [
+        { id: "q1", name: "1. 儀表操作、指示燈", method: "指示功能正常" },
+        { id: "q2", name: "2. 方向盤", method: "轉動順手" },
+        { id: "q3", name: "3. 喇叭、車窗試放", method: "關窗車內可聽見" },
+        { id: "q4", name: "4. 監視主機", method: "畫質、訊號清楚" },
+        { id: "q5", name: "5. 遠近光燈、煞車燈", method: "會亮" },
+        { id: "q6", name: "6. 前後方向燈", method: "會亮" },
+        { id: "q7", name: "7. 手煞車、腳煞車", method: "入(N檔)空檔不移動" },
+        { id: "q8", name: "8. 後視鏡", method: "無損毀且角度清晰" },
+        { id: "q9", name: "9. 雨刷", method: "動作不留水痕" },
+        { id: "q10", name: "10. 胎壓", method: "初步目視、敲打測試" },
+        { id: "q11", name: "11. 輪胎紋路", method: "不得低於 2mm" },
+        { id: "q12", name: "12. 引擎機油", method: "油尺上下限刻度" },
+        { id: "q13", name: "13. 方向機油", method: "油尺上下限刻度" },
+        { id: "q14", name: "14. 煞車油", method: "量尺上下限刻度" },
+        { id: "q15", name: "15. 油量", method: "儀表板刻度下限以上" },
+        { id: "q16", name: "16. 電瓶水", method: "量尺上下限刻度" },
+        { id: "q17", name: "17. 水箱冷卻水", method: "量尺上下限刻度" },
+        { id: "q18", name: "18. 擋風玻璃清潔液", method: "上下限刻度" },
+        { id: "q19", name: "19. 警示旋轉燈、蜂鳴器", method: "試運轉是否正常" },
+        { id: "q20", name: "20. 垃圾壓縮系統", method: "運轉測試是否正常" },
+        { id: "q21", name: "21. 附設加壓系統", method: "運轉測試是否正常" }
+      ],
+      "抓斗車": [
+        { id: "q1", name: "1. 油壓系統油箱油量是否正常", method: "目測或手動" },
+        { id: "q2", name: "2. 油壓系統之油管、聯結器及裝配是否有漏油", method: "目測或手動" },
+        { id: "q3", name: "3. 控制裝置(如操作桿、開關等)運作是否正常", method: "目測或手動" },
+        { id: "q4", name: "4. P.T.O(扭力轉換器)操作是否正常", method: "目測或手動" },
+        { id: "q5", name: "5. 旋轉裝置螺栓及螺帽是否鬆動、漏油", method: "目測或手動" },
+        { id: "q6", name: "6. 作業器具、安全帽、安全帶之功能是否正常", method: "目測或手動" },
+        { id: "q7", name: "7. 制動器、離合器、儀表及各部燈光是否正常", method: "目測或手動" },
+        { id: "q8", name: "8. 吊具、鋼索是否有截斷、磨損、變形、脫落", method: "目測或手動" },
+        { id: "q9", name: "9. 過捲及過負荷預防裝置是否正常", method: "目測或手動" },
+        { id: "q10", name: "10. 吊鉤防止吊物脫落之防滑舌片裝置是否正常", method: "目測或手動" },
+        { id: "q11", name: "11. 吊物總重是否超過額定荷重", method: "目測或手動" },
+        { id: "q12", name: "12. 警報裝置、控制裝置、開關器等部分是否正常", method: "目測或手動" }
+      ],
+      "鏟裝機、挖掘機": [
+        { id: "q1", name: "1. 引擎室機油、冷卻水、燃油是否洩漏", method: "目測或手動" },
+        { id: "q2", name: "2. 冷卻系統是否洩漏及散熱片是否積存泥土", method: "目測或手動" },
+        { id: "q3", name: "3. 末級傳動是否洩漏", method: "目測或手動" },
+        { id: "q4", name: "4. 鏈輪齒是否磨損", method: "目測或手動" },
+        { id: "q5", name: "5. 各燈系、蜂鳴器是否正常", method: "目測或手動" },
+        { id: "q6", name: "6. 各操作油管及接頭是否正常", method: "目測或手動" },
+        { id: "q7", name: "7. 煞車制動、離合器是否正常", method: "目測或手動" },
+        { id: "q8", name: "8. 駕駛室是否清潔，儀錶是否有破損", method: "目測或手動" },
+        { id: "q9", name: "9. 空氣濾清器運作是否正常", method: "目測或手動" },
+        { id: "q10", name: "10. 輪胎氣壓、胎紋、鋼圈螺栓是否正常", method: "目測或手動" },
+        { id: "q11", name: "11. 風扇皮帶是否龜裂、鬆弛", method: "目測或手動" },
+        { id: "q12", name: "12. 電瓶液面是否於正常", method: "目測或手動" },
+        { id: "q13", name: "13. 黃油檢注射斗主梢", method: "目測或手動" }
+      ],
+      "高空工作車": [
+        { id: "q1", name: "1. 制動裝置", method: "靜態試拉手煞車" },
+        { id: "q2", name: "2. 制動裝置", method: "檢查腳煞車系統動態" },
+        { id: "q3", name: "3. 制動裝置", method: "無顯著磨損、剝離、油污" },
+        { id: "q4", name: "4. 離合器", method: "檢查液壓管路" },
+        { id: "q5", name: "5. 離合器", method: "試踩離合器" },
+        { id: "q6", name: "6. 操作裝置", method: "車靜止時試搖排檔桿" },
+        { id: "q7", name: "7. 操作裝置", method: "開關或控制器作動狀況正常，方向正確" },
+        { id: "q8", name: "8. 作業裝置", method: "各種作業裝備應正常" },
+        { id: "q9", name: "9. 油壓裝置", method: "油箱油量是否正常" },
+        { id: "q10", name: "10. 配線", method: "檢查有無異常" }
+      ],
+      "堆高機": [
+        { id: "q1", name: "1. 靜態試拉手煞車", method: "目測或手動" },
+        { id: "q2", name: "2. 腳煞車系統動態煞車踏板間隙", method: "目測或手動" },
+        { id: "q3", name: "3. 檢查液壓管路", method: "目測或手動" },
+        { id: "q4", name: "4. 試踩離合器", method: "目測或手動" },
+        { id: "q5", name: "5. 車靜止時試搖排檔桿", method: "目測或手動" },
+        { id: "q6", name: "6. 連結裝置檢查有無異常", method: "目測或手動" },
+        { id: "q7", name: "7. 各種儀器檢查有無異常", method: "目測或手動" },
+        { id: "q8", name: "8. 蓄電池檢查有無異常", method: "目測或手動" },
+        { id: "q9", name: "9. 配線檢查有無異常", method: "目測或手動" },
+        { id: "q10", name: "10. 控制裝置檢查有無異常", method: "目測或手動" }
+      ]
+    };
+
+    // 動態渲染畫面與車號
+    window.renderChecklist = function() {
+      const vTypeBase = document.getElementById('vehicleType').value;
+      const vType = vTypeBase.split(" ")[0]; // 處理抓斗車後面的括號
+      const squad = document.getElementById('squadName').value;
+      
+      // 1. 更新車牌下拉選單
+      const sel = document.getElementById('vehicleId');
+      sel.innerHTML = '<option value="">-- 請選擇車牌號碼 --</option>';
+      if (squad && vType && globalVehicleData[squad] && globalVehicleData[squad][vType]) {
+        globalVehicleData[squad][vType].forEach(vNo => {
+          sel.innerHTML += `<option value="${vNo}">${vNo}</option>`;
+        });
+      }
+
+      // 2. 顯示文字框，並重置狀態
+      document.getElementById('measureGroup').style.display = (vType) ? "block" : "none";
+      document.getElementById('measureNote').value = "";
+      checkAbnormal(); // 重置文字框必填狀態
+
+      // 3. 動態渲染題目
+      const container = document.getElementById('inspectionItems');
+      container.innerHTML = "";
+      
+      const questions = vehicleChecklists[vTypeBase];
+      if (!questions) return;
+
+      questions.forEach(item => {
+        let html = `
+          <div class="form-group">
+            <label>${item.name} <span class="required-star">*</span></label>
+            <div style="margin-bottom: 12px; color: #2980b9; font-size: 16px; font-weight: bold;">🔍 檢查方法：${item.method}</div>
+            
+            <!-- 預設為空值，防呆阻擋送出 -->
+            <input type="hidden" id="${item.id}" class="question-input" value="" required>
+            
+            <div class="status-layout">
+              <button type="button" class="btn-status btn-main" onclick="setBtnStatus('${item.id}', '正常', 'active-main', this)">✅ 正常</button>
+              <div class="side-group">
+                <button type="button" class="btn-status btn-side" onclick="setBtnStatus('${item.id}', '異常', 'active-sub-1', this)">🔧 異常</button>
+                <button type="button" class="btn-status btn-side" onclick="setBtnStatus('${item.id}', '無此項', 'active-sub-2', this)">➖ 無此項</button>
+              </div>
+            </div>
+          </div>`;
+        container.innerHTML += html;
+      });
+    };
+
+    window.setBtnStatus = function(id, val, activeClass, clickedBtn) {
+      document.getElementById(id).value = val;
+      const layout = clickedBtn.closest('.status-layout');
+      
+      // 清除所有按鈕的 active 狀態
+      layout.querySelectorAll('.btn-status').forEach(btn => {
+        btn.classList.remove('active-main', 'active-sub-1', 'active-sub-2');
+      });
+      // 加上對應顏色的 active 狀態
+      clickedBtn.classList.add(activeClass);
+      
+      checkAbnormal();
+    };
+
+    // 檢查是否有異常，動態切換必填狀態
+    window.checkAbnormal = function() {
+      let hasAbnormal = false;
+      document.querySelectorAll('.question-input').forEach(input => {
+        if (input.value === '異常') hasAbnormal = true;
+      });
+
+      const noteInput = document.getElementById('measureNote');
+      const noteLabel = document.getElementById('measureNoteLabel');
+      
+      if (hasAbnormal) {
+        noteInput.required = true;
+        noteInput.placeholder = "⚠️ 已選擇異常，請務必填寫處置與改善措施...";
+        noteInput.style.borderColor = "#e74c3c";
+        noteInput.style.borderWidth = "3px";
+        noteLabel.innerHTML = '依檢查結果應採取改善措施之內容 <span style="color:red;">(必填)</span>：';
+      } else {
+        noteInput.required = false;
+        noteInput.placeholder = "若無特殊狀況可留空...";
+        noteInput.style.borderColor = "#aaa";
+        noteInput.style.borderWidth = "2px";
+        noteLabel.innerHTML = '依檢查結果應採取改善措施之內容：';
+      }
+    };
+
+    // 簽名板功能
+    const canvas = document.getElementById('sigCanvas');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false, hasSigned = false;
+    
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.offsetWidth;
+      canvas.height = 200;
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000';
+      hasSigned = false;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    
+    function getCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+      return { x: e.offsetX, y: e.offsetY };
+    }
+
+    canvas.addEventListener('mousedown', (e) => { isDrawing = hasSigned = true; ctx.beginPath(); ctx.moveTo(getCoords(e).x, getCoords(e).y); e.preventDefault(); });
+    canvas.addEventListener('mousemove', (e) => { if(isDrawing){ ctx.lineTo(getCoords(e).x, getCoords(e).y); ctx.stroke(); e.preventDefault();} });
+    canvas.addEventListener('mouseup', () => isDrawing = false);
+    canvas.addEventListener('mouseout', () => isDrawing = false);
+    canvas.addEventListener('touchstart', (e) => { isDrawing = hasSigned = true; ctx.beginPath(); ctx.moveTo(getCoords(e).x, getCoords(e).y); e.preventDefault(); }, {passive: false});
+    canvas.addEventListener('touchmove', (e) => { if(isDrawing){ ctx.lineTo(getCoords(e).x, getCoords(e).y); ctx.stroke(); e.preventDefault();} }, {passive: false});
+    canvas.addEventListener('touchend', () => isDrawing = false);
+    
+    window.clearCanvas = function() { resizeCanvas(); };
+
+    window.onload = function() { resizeCanvas(); fetchVehicleData(); };
+
+    function fetchVehicleData() {
+      fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "getVehicles" }) })
+      .then(res => res.json())
+      .then(result => {
+        if(result.status === "Success") { globalVehicleData = result.data; initLiff(); } 
+        else { Swal.fire('錯誤', '無法載入資料表', 'error'); }
+      }).catch(err => Swal.fire('網路錯誤', '資料載入失敗', 'error'));
+    }
+
+    function initLiff() {
+      liff.init({ liffId: LIFF_ID, withLoginOnExternalBrowser: true })
+        .then(() => {
+          if (!liff.isLoggedIn()) liff.login();
+          else liff.getProfile().then(p => { currentUserId = p.userId; checkUser(p.userId); });
+        });
+    }
+
+    function checkUser(userId) {
+      document.getElementById('loading').innerText = "🔄 正在確認人員編制...";
+      fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "checkUser", userId: userId }) })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('loading').classList.add('hidden');
+        if (data.found) {
+          document.getElementById('squadName').value = data.squad;
+          document.getElementById('driverName').value = data.name;
+          document.getElementById('checkForm').classList.remove('hidden');
+        } else {
+          const sel = document.getElementById('regSquad');
+          Object.keys(globalVehicleData).forEach(squad => sel.innerHTML += `<option value="${squad}">${squad}</option>`);
+          document.getElementById('registerBox').classList.remove('hidden');
+        }
+      });
+    }
+
+    function submitRegistration(event) {
+      const squad = document.getElementById('regSquad').value;
+      const name = document.getElementById('regName').value.trim();
+      if (!squad || !name) return Swal.fire('提醒', '請完整選擇區隊並輸入姓名！', 'warning');
+      event.target.disabled = true; event.target.innerText = '⏳ 綁定中...';
+      fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "registerUser", userId: currentUserId, name: name, squad: squad }) })
+      .then(() => location.reload()); 
+    }
+
+    function submitForm(event) {
+      event.preventDefault();
+      
+      const vTypeBase = document.getElementById('vehicleType').value;
+      if (!vTypeBase || !document.getElementById('vehicleId').value) return Swal.fire('提醒', '請選擇車輛種類與車牌！', 'warning');
+      if (!hasSigned) return Swal.fire('缺少簽名', '📝 請在最下方親筆簽名！', 'warning');
+
+      // 檢查是否所有題目都已作答 (防呆)
+      let allAnswered = true;
+      document.querySelectorAll('.question-input').forEach(input => {
+        if (input.value === "") allAnswered = false;
+      });
+      if (!allAnswered) return Swal.fire('提醒', '您有尚未選擇的檢查項目，請全數檢查完畢。', 'warning');
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true; btn.innerText = "⏳ 檢查表上傳中...";
+
+      // 組合回傳資料
+      const checkItems = [];
+      vehicleChecklists[vTypeBase].forEach(q => {
+        checkItems.push({
+          questionName: `${q.name}\n(${q.method})`, // 讓後端收到的標題自帶換行與方法
+          resultValue: document.getElementById(q.id).value
+        });
+      });
+
+      const formData = {
+        squad: document.getElementById('squadName').value,
+        vehicleType: vTypeBase,
+        driverName: document.getElementById('driverName').value,
+        vehicleId: document.getElementById('vehicleId').value,
+        checkItems: checkItems,
+        measureNote: document.getElementById('measureNote').value,
+        signature: canvas.toDataURL("image/png")
+      };
+
+      // 呼叫全新的 saveDaily API
+      fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "saveDaily", data: formData }) })
+      .then(res => res.json())
+      .then(result => {
+        if (result.status === "Success") {
+          Swal.fire({
+            icon: 'success', title: '✅ 送出成功！', text: '作業前自動檢查表已建檔完畢',
+            confirmButtonColor: '#27ae60', confirmButtonText: '關閉視窗', allowOutsideClick: false
+          }).then((res) => { if (res.isConfirmed) liff.closeWindow(); });
+        } else {
+          Swal.fire('❌ 儲存失敗', result.status, 'error');
+          btn.disabled = false; btn.innerText = "確認送出檢查表";
+        }
+      }).catch(err => {
+        Swal.fire('❌ 送出失敗', err.message, 'error');
+        btn.disabled = false; btn.innerText = "確認送出檢查表";
+      });
+    }
+  </script>
+</body>
+</html>
