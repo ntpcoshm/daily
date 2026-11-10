@@ -103,10 +103,10 @@
   </div>
 
   <script>
-    // ⚠️ 舊的 GAS 網址
+    // 您的 GAS 網址 (日檢跟季檢共用這個後端大腦)
     const GAS_URL = "https://script.google.com/macros/s/AKfycbwOy47jQehglAT1MgdEOieU2bs_CP2j69UTm7zOrO5ukVyhT-f1xLMiwowgDaTRcjzUmg/exec"; 
-    // ⚠️ 請填寫您的日檢專用 LIFF ID
-    const LIFF_ID = "2012500827-OvcHEqvG"; 
+    // ⚠️⚠️⚠️ 請在此填入您的「全新」作業前檢查專用 LIFF ID ⚠️⚠️⚠️
+    const LIFF_ID = "在此填寫您的日檢專用_LIFF_ID"; 
     
     let globalVehicleData = {};
     let currentUserId = "";
@@ -190,7 +190,7 @@
       ]
     };
 
-    // 👉 讀取記憶資料
+    // 👉 讀取本機記憶
     function loadSavedData() {
       const savedStr = localStorage.getItem('dailyCheckData_' + currentUserId);
       if (savedStr) {
@@ -198,14 +198,13 @@
           const savedData = JSON.parse(savedStr);
           if (savedData.vehicleType) {
             document.getElementById('vehicleType').value = savedData.vehicleType;
-            // 帶入記憶的資料進行渲染
             renderChecklist(savedData); 
           }
         } catch(e) { console.error("記憶讀取失敗", e); }
       }
     }
 
-    // 👉 儲存記憶資料
+    // 👉 儲存本機記憶
     function saveCurrentData() {
       const savedData = {
         vehicleType: document.getElementById('vehicleType').value,
@@ -218,7 +217,6 @@
       localStorage.setItem('dailyCheckData_' + currentUserId, JSON.stringify(savedData));
     }
 
-    // 動態渲染畫面與車號 (支援帶入記憶資料)
     window.renderChecklist = function(savedData = null) {
       const vTypeBase = document.getElementById('vehicleType').value;
       const vType = vTypeBase.split(" ")[0]; 
@@ -232,7 +230,6 @@
         });
       }
       
-      // 記憶：還原車號
       if (savedData && savedData.vehicleId) {
         sel.value = savedData.vehicleId;
       }
@@ -266,7 +263,6 @@
         container.innerHTML += html;
       });
 
-      // 記憶：還原各題的按鈕狀態
       if (savedData && savedData.answers) {
         Object.keys(savedData.answers).forEach(qId => {
           const val = savedData.answers[qId];
@@ -284,7 +280,6 @@
           }
         });
       }
-      
       checkAbnormal(); 
     };
 
@@ -313,3 +308,147 @@
         noteInput.style.borderColor = "#e74c3c";
         noteInput.style.borderWidth = "3px";
         noteLabel.innerHTML = '依檢查結果應採取改善措施之內容 <span style="color:red;">(必填)</span>：';
+      } else {
+        noteInput.required = false;
+        noteInput.placeholder = "若無特殊狀況可留空...";
+        noteInput.style.borderColor = "#aaa";
+        noteInput.style.borderWidth = "2px";
+        noteLabel.innerHTML = '依檢查結果應採取改善措施之內容：';
+      }
+    };
+
+    const canvas = document.getElementById('sigCanvas');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false, hasSigned = false;
+    
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.offsetWidth;
+      canvas.height = 200;
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#000';
+      hasSigned = false;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    
+    function getCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+      return { x: e.offsetX, y: e.offsetY };
+    }
+
+    canvas.addEventListener('mousedown', (e) => { isDrawing = hasSigned = true; ctx.beginPath(); ctx.moveTo(getCoords(e).x, getCoords(e).y); e.preventDefault(); });
+    canvas.addEventListener('mousemove', (e) => { if(isDrawing){ ctx.lineTo(getCoords(e).x, getCoords(e).y); ctx.stroke(); e.preventDefault();} });
+    canvas.addEventListener('mouseup', () => isDrawing = false);
+    canvas.addEventListener('mouseout', () => isDrawing = false);
+    canvas.addEventListener('touchstart', (e) => { isDrawing = hasSigned = true; ctx.beginPath(); ctx.moveTo(getCoords(e).x, getCoords(e).y); e.preventDefault(); }, {passive: false});
+    canvas.addEventListener('touchmove', (e) => { if(isDrawing){ ctx.lineTo(getCoords(e).x, getCoords(e).y); ctx.stroke(); e.preventDefault();} }, {passive: false});
+    canvas.addEventListener('touchend', () => isDrawing = false);
+    
+    window.clearCanvas = function() { resizeCanvas(); };
+
+    window.onload = function() { resizeCanvas(); fetchVehicleData(); };
+
+    function fetchVehicleData() {
+      fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "getVehicles" }) })
+      .then(res => res.json())
+      .then(result => {
+        if(result.status === "Success") { globalVehicleData = result.data; initLiff(); } 
+        else { Swal.fire('錯誤', '無法載入資料表', 'error'); }
+      }).catch(err => Swal.fire('網路錯誤', '資料載入失敗', 'error'));
+    }
+
+    // 👉 加上了錯誤偵測的 LIFF 初始化
+    function initLiff() {
+      liff.init({ liffId: LIFF_ID, withLoginOnExternalBrowser: true })
+        .then(() => {
+          if (!liff.isLoggedIn()) liff.login();
+          else liff.getProfile().then(p => { currentUserId = p.userId; checkUser(p.userId); });
+        }).catch(err => {
+          // 如果發生錯誤，紅字會直接顯示在畫面上
+          document.getElementById('loading').innerHTML = "❌ LIFF 啟動失敗：<br>" + err.toString();
+        });
+    }
+
+    function checkUser(userId) {
+      document.getElementById('loading').innerText = "🔄 正在確認人員編制...";
+      fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "checkUser", userId: userId }) })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('loading').classList.add('hidden');
+        if (data.found) {
+          document.getElementById('squadName').value = data.squad;
+          document.getElementById('driverName').value = data.name;
+          document.getElementById('checkForm').classList.remove('hidden');
+          loadSavedData();
+        } else {
+          const sel = document.getElementById('regSquad');
+          Object.keys(globalVehicleData).forEach(squad => sel.innerHTML += `<option value="${squad}">${squad}</option>`);
+          document.getElementById('registerBox').classList.remove('hidden');
+        }
+      });
+    }
+
+    function submitRegistration(event) {
+      const squad = document.getElementById('regSquad').value;
+      const name = document.getElementById('regName').value.trim();
+      if (!squad || !name) return Swal.fire('提醒', '請完整選擇區隊並輸入姓名！', 'warning');
+      event.target.disabled = true; event.target.innerText = '⏳ 綁定中...';
+      fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "registerUser", userId: currentUserId, name: name, squad: squad }) })
+      .then(() => location.reload()); 
+    }
+
+    function submitForm(event) {
+      event.preventDefault();
+      
+      const vTypeBase = document.getElementById('vehicleType').value;
+      if (!vTypeBase || !document.getElementById('vehicleId').value) return Swal.fire('提醒', '請選擇車輛種類與車牌！', 'warning');
+      if (!hasSigned) return Swal.fire('缺少簽名', '📝 請在最下方親筆簽名！', 'warning');
+
+      let allAnswered = true;
+      document.querySelectorAll('.question-input').forEach(input => {
+        if (input.value === "") allAnswered = false;
+      });
+      if (!allAnswered) return Swal.fire('提醒', '您有尚未選擇的檢查項目，請全數檢查完畢。', 'warning');
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true; btn.innerText = "⏳ 檢查表上傳中...";
+
+      const checkItems = [];
+      vehicleChecklists[vTypeBase].forEach(q => {
+        checkItems.push({
+          questionName: `${q.name}\n(${q.method})`, 
+          resultValue: document.getElementById(q.id).value
+        });
+      });
+
+      const formData = {
+        squad: document.getElementById('squadName').value,
+        vehicleType: vTypeBase,
+        driverName: document.getElementById('driverName').value,
+        vehicleId: document.getElementById('vehicleId').value,
+        checkItems: checkItems,
+        measureNote: document.getElementById('measureNote').value,
+        signature: canvas.toDataURL("image/png")
+      };
+
+      fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "saveDaily", data: formData }) })
+      .then(res => res.json())
+      .then(result => {
+        if (result.status === "Success") {
+          saveCurrentData();
+          Swal.fire({
+            icon: 'success', title: '✅ 送出成功！', text: '作業前自動檢查表已建檔完畢',
+            confirmButtonColor: '#27ae60', confirmButtonText: '關閉視窗', allowOutsideClick: false
+          }).then((res) => { if (res.isConfirmed) liff.closeWindow(); });
+        } else {
+          Swal.fire('❌ 儲存失敗', result.status, 'error');
+          btn.disabled = false; btn.innerText = "確認送出檢查表";
+        }
+      }).catch(err => {
+        Swal.fire('❌ 送出失敗', err.message, 'error');
+        btn.disabled = false; btn.innerText = "確認送出檢查表";
+      });
+    }
+  </script>
+</body>
+</html>
