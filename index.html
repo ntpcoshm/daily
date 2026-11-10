@@ -10,7 +10,7 @@
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 10px; background: #f4f4f9; color: #111; margin: 0; }
     .container { max-width: 600px; margin: auto; background: white; padding: 20px 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
     h2 { color: #2c3e50; text-align: center; margin-bottom: 20px; font-size: 26px; border-bottom: 3px solid #3498db; padding-bottom: 12px; font-weight: 900;}
-    .form-group { margin-bottom: 25px; border-bottom: 1px dashed #ddd; padding-bottom: 15px; }
+    .form-group { margin-bottom: 25px; border-bottom: 1px dashed #ddd; padding-bottom: 15px; border-radius: 8px; }
     label { display: block; margin-bottom: 8px; font-weight: 900; font-size: 22px; color: #000;}
     input[type="text"], select, textarea { width: 100%; padding: 14px; border: 2px solid #aaa; border-radius: 8px; box-sizing: border-box; font-size: 20px; background: #fff;}
     input:read-only { background-color: #e9ecef; color: #333; }
@@ -56,7 +56,8 @@
       <button type="button" class="btn-submit" style="background:#27ae60;" onclick="submitRegistration(event)">完成綁定並進入</button>
     </div>
 
-    <form id="checkForm" class="hidden" onsubmit="submitForm(event)">
+    <!-- 👉 加入 novalidate 讓瀏覽器把驗證權限交給我們的 JS 控制，體驗更一致 -->
+    <form id="checkForm" class="hidden" onsubmit="submitForm(event)" novalidate>
       <div class="form-group">
         <label>所屬區隊：</label>
         <input type="text" id="squadName" readonly required>
@@ -78,7 +79,7 @@
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" id="vehicleIdGroup">
         <label>車牌號碼：</label>
         <select id="vehicleId" required>
           <option value="">-- 請先選擇上方車種 --</option>
@@ -92,7 +93,7 @@
         <textarea id="measureNote" rows="3" placeholder="若無特殊狀況可留空..."></textarea>
       </div>
 
-      <div class="form-group" style="border: none; padding-bottom: 0;">
+      <div class="form-group" id="sigGroup" style="border: none; padding-bottom: 0;">
         <label>✍️ 檢查人員親筆簽名 (必填)：</label>
         <div class="canvas-container"><canvas id="sigCanvas"></canvas></div>
         <button type="button" class="clear-btn" onclick="clearCanvas()">✖ 清除重新簽名</button>
@@ -103,7 +104,6 @@
   </div>
 
   <script>
-    // GAS 後端網址
     const GAS_URL = "https://script.google.com/macros/s/AKfycbwOy47jQehglAT1MgdEOieU2bs_CP2j69UTm7zOrO5ukVyhT-f1xLMiwowgDaTRcjzUmg/exec"; 
     // ⚠️⚠️⚠️ 請在此填寫您的 日檢專用 LIFF ID ⚠️⚠️⚠️
     const LIFF_ID = "2012500827-OvcHEqvG"; 
@@ -138,16 +138,16 @@
       "抓斗車": [
         { id: "q1", name: "1. 油壓系統油箱油量是否正常", method: "目測或手動" },
         { id: "q2", name: "2. 油壓系統之油管、聯結器及裝配是否有漏油", method: "目測或手動" },
-        { id: "q3", name: "3. 控制裝置(如操作桿、開關等)運作是否正常", method: "目測或手動" },
+        { id: "q3", name: "3. 控制裝置運作是否正常", method: "目測或手動" },
         { id: "q4", name: "4. P.T.O(扭力轉換器)操作是否正常", method: "目測或手動" },
         { id: "q5", name: "5. 旋轉裝置螺栓及螺帽是否鬆動、漏油", method: "目測或手動" },
         { id: "q6", name: "6. 作業器具、安全帽、安全帶之功能是否正常", method: "目測或手動" },
         { id: "q7", name: "7. 制動器、離合器、儀表及各部燈光是否正常", method: "目測或手動" },
         { id: "q8", name: "8. 吊具、鋼索是否有截斷、磨損、變形、脫落", method: "目測或手動" },
         { id: "q9", name: "9. 過捲及過負荷預防裝置是否正常", method: "目測或手動" },
-        { id: "q10", name: "10. 吊鉤防止吊物脫落之防滑舌片裝置是否正常", method: "目測或手動" },
+        { id: "q10", name: "10. 吊鉤防滑舌片裝置是否正常", method: "目測或手動" },
         { id: "q11", name: "11. 吊物總重是否超過額定荷重", method: "目測或手動" },
-        { id: "q12", name: "12. 警報裝置、控制裝置、開關器等部分是否正常", method: "目測或手動" }
+        { id: "q12", name: "12. 警報裝置、控制裝置、開關器等是否正常", method: "目測或手動" }
       ],
       "鏟裝機、挖掘機": [
         { id: "q1", name: "1. 引擎室機油、冷卻水、燃油是否洩漏", method: "目測或手動" },
@@ -190,7 +190,6 @@
       ]
     };
 
-    // 👉 讀取本機記憶 (升級版：依車種獨立記憶)
     function loadSavedData() {
       const savedStr = localStorage.getItem('dailyCheckMem_v2_' + currentUserId);
       if (savedStr) {
@@ -198,19 +197,15 @@
           const memory = JSON.parse(savedStr);
           if (memory.lastUsedType) {
             document.getElementById('vehicleType').value = memory.lastUsedType;
-            // 帶入該車種專屬的記憶資料進行渲染
             renderChecklist(memory.types[memory.lastUsedType]); 
           }
-        } catch(e) { console.error("記憶讀取失敗", e); }
+        } catch(e) {}
       }
     }
 
-    // 👉 儲存本機記憶 (升級版：依車種獨立分類儲存)
     function saveCurrentData() {
       const vTypeBase = document.getElementById('vehicleType').value;
       const vId = document.getElementById('vehicleId').value;
-      
-      // 先把舊有的記憶庫整包拿出來 (避免覆蓋掉其他車種的記憶)
       let memory = { lastUsedType: vTypeBase, types: {} };
       try {
         const savedStr = localStorage.getItem('dailyCheckMem_v2_' + currentUserId);
@@ -218,70 +213,52 @@
       } catch(e) {}
       if (!memory.types) memory.types = {};
       
-      // 把這次填寫的選項包裝起來
       const answers = {};
       document.querySelectorAll('.question-input').forEach(input => {
         answers[input.id] = input.value;
       });
       
-      // 更新這個車種的專屬抽屜
       memory.lastUsedType = vTypeBase;
-      memory.types[vTypeBase] = {
-        vehicleId: vId,
-        answers: answers
-      };
-      
-      // 整包存回手機
+      memory.types[vTypeBase] = { vehicleId: vId, answers: answers };
       localStorage.setItem('dailyCheckMem_v2_' + currentUserId, JSON.stringify(memory));
     }
 
-    // 動態渲染畫面與車號
     window.renderChecklist = function(providedData = null) {
       const vTypeBase = document.getElementById('vehicleType').value;
       const vType = vTypeBase.split(" ")[0]; 
       const squad = document.getElementById('squadName').value;
       
-      // 👉 如果隊員是自己手動切換下拉選單 (沒有傳入 providedData)，就去記憶庫挖看看有沒有這個車種的記憶
       let savedData = providedData;
       if (!savedData) {
         try {
           const memory = JSON.parse(localStorage.getItem('dailyCheckMem_v2_' + currentUserId));
-          if (memory && memory.types && memory.types[vTypeBase]) {
-            savedData = memory.types[vTypeBase];
-          }
+          if (memory && memory.types && memory.types[vTypeBase]) savedData = memory.types[vTypeBase];
         } catch(e) {}
       }
       
       const sel = document.getElementById('vehicleId');
       sel.innerHTML = '<option value="">-- 請選擇車牌號碼 --</option>';
       if (squad && vType && globalVehicleData[squad] && globalVehicleData[squad][vType]) {
-        globalVehicleData[squad][vType].forEach(vNo => {
-          sel.innerHTML += `<option value="${vNo}">${vNo}</option>`;
-        });
+        globalVehicleData[squad][vType].forEach(vNo => { sel.innerHTML += `<option value="${vNo}">${vNo}</option>`; });
       }
       
-      if (savedData && savedData.vehicleId) {
-        sel.value = savedData.vehicleId;
-      }
+      if (savedData && savedData.vehicleId) sel.value = savedData.vehicleId;
 
       document.getElementById('measureGroup').style.display = (vType) ? "block" : "none";
       document.getElementById('measureNote').value = "";
       
       const container = document.getElementById('inspectionItems');
       container.innerHTML = "";
-      
       const questions = vehicleChecklists[vTypeBase];
-      if (!questions) {
-        checkAbnormal();
-        return;
-      }
+      if (!questions) { checkAbnormal(); return; }
 
       questions.forEach(item => {
+        // 👉 這裡的隱藏 input 拿掉了 required 標籤，讓 JS 完整接管驗證
         let html = `
-          <div class="form-group">
+          <div class="form-group question-group">
             <label>${item.name} <span class="required-star">*</span></label>
             <div style="margin-bottom: 12px; color: #2980b9; font-size: 16px; font-weight: bold;">🔍 檢查方法：${item.method}</div>
-            <input type="hidden" id="${item.id}" class="question-input" value="" required>
+            <input type="hidden" id="${item.id}" class="question-input" value="">
             <div class="status-layout">
               <button type="button" class="btn-status btn-main" onclick="setBtnStatus('${item.id}', '正常', 'active-main', this)">✅ 正常</button>
               <div class="side-group">
@@ -293,7 +270,6 @@
         container.innerHTML += html;
       });
 
-      // 還原這個車種上次勾選的狀態
       if (savedData && savedData.answers) {
         Object.keys(savedData.answers).forEach(qId => {
           const val = savedData.answers[qId];
@@ -408,7 +384,6 @@
           document.getElementById('squadName').value = data.squad;
           document.getElementById('driverName').value = data.name;
           document.getElementById('checkForm').classList.remove('hidden');
-          // 👉 身份確認無誤後，讀取記憶
           loadSavedData();
         } else {
           const sel = document.getElementById('regSquad');
@@ -427,19 +402,60 @@
       .then(() => location.reload()); 
     }
 
+    // 👉 核心改版：自訂防呆導航驗證機制
     function submitForm(event) {
-      event.preventDefault();
+      event.preventDefault(); // 阻擋原生的默默送出
       
       const vTypeBase = document.getElementById('vehicleType').value;
-      if (!vTypeBase || !document.getElementById('vehicleId').value) return Swal.fire('提醒', '請選擇車輛種類與車牌！', 'warning');
-      if (!hasSigned) return Swal.fire('缺少簽名', '📝 請在最下方親筆簽名！', 'warning');
+      const vehicleIdObj = document.getElementById('vehicleId');
+      
+      // 1. 檢查車牌
+      if (!vTypeBase || !vehicleIdObj.value) {
+        Swal.fire('提醒', '請選擇車輛種類與車牌號碼！', 'warning');
+        document.getElementById('vehicleIdGroup').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        vehicleIdObj.focus();
+        return;
+      }
 
-      let allAnswered = true;
-      document.querySelectorAll('.question-input').forEach(input => {
-        if (input.value === "") allAnswered = false;
-      });
-      if (!allAnswered) return Swal.fire('提醒', '您有尚未選擇的檢查項目，請全數檢查完畢。', 'warning');
+      // 2. 檢查所有題目是否作答，找出第一個沒填的
+      let firstUnanswered = null;
+      const inputs = document.querySelectorAll('.question-input');
+      for (let i = 0; i < inputs.length; i++) {
+        if (inputs[i].value === "") {
+          firstUnanswered = inputs[i];
+          break; // 抓到第一個就停止
+        }
+      }
 
+      if (firstUnanswered) {
+        Swal.fire('漏填提醒', '您有尚未選擇的檢查項目，請全數檢查完畢。', 'warning');
+        const questionDiv = firstUnanswered.closest('.question-group');
+        questionDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // 給予閃爍提示效果 (紅底淡出)
+        questionDiv.style.backgroundColor = "#ffdddd";
+        questionDiv.style.transition = "background-color 0.5s ease-in-out";
+        setTimeout(() => { questionDiv.style.backgroundColor = "transparent"; }, 1500);
+        return;
+      }
+
+      // 3. 檢查改善措施 (如果有選異常)
+      const measureNote = document.getElementById('measureNote');
+      if (measureNote.required && measureNote.value.trim() === "") {
+        Swal.fire('填寫提醒', '您有勾選「異常」，請務必填寫處置與改善措施！', 'warning');
+        document.getElementById('measureGroup').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        measureNote.focus();
+        return;
+      }
+
+      // 4. 檢查簽名
+      if (!hasSigned) {
+        Swal.fire('缺少簽名', '📝 請在最下方親筆簽名！', 'warning');
+        document.getElementById('sigGroup').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+
+      // 驗證全數通過，準備上傳
       const btn = document.getElementById('submitBtn');
       btn.disabled = true; btn.innerText = "⏳ 檢查表上傳中...";
 
@@ -465,9 +481,7 @@
       .then(res => res.json())
       .then(result => {
         if (result.status === "Success") {
-          // 👉 傳送成功後，將本次的選擇存入該車種的專屬記憶抽屜
           saveCurrentData();
-          
           Swal.fire({
             icon: 'success', title: '✅ 送出成功！', text: '作業前自動檢查表已建檔完畢',
             confirmButtonColor: '#27ae60', confirmButtonText: '關閉視窗', allowOutsideClick: false
