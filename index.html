@@ -103,10 +103,10 @@
   </div>
 
   <script>
-    // 您的 GAS 網址 (日檢跟季檢共用這個後端)
+    // GAS 後端網址
     const GAS_URL = "https://script.google.com/macros/s/AKfycbwOy47jQehglAT1MgdEOieU2bs_CP2j69UTm7zOrO5ukVyhT-f1xLMiwowgDaTRcjzUmg/exec"; 
-    // ⚠️⚠️⚠️ 請在此填入您的「全新」作業前檢查專用 LIFF ID ⚠️⚠️⚠️
-    const LIFF_ID = "2012500827-OvcHEqvG"; 
+    // ⚠️⚠️⚠️ 請在此填寫您的 日檢專用 LIFF ID ⚠️⚠️⚠️
+    const LIFF_ID = "在此填寫您的日檢專用_LIFF_ID"; 
     
     let globalVehicleData = {};
     let currentUserId = "";
@@ -190,37 +190,67 @@
       ]
     };
 
-    // 👉 讀取本機記憶
+    // 👉 讀取本機記憶 (升級版：依車種獨立記憶)
     function loadSavedData() {
-      const savedStr = localStorage.getItem('dailyCheckData_' + currentUserId);
+      const savedStr = localStorage.getItem('dailyCheckMem_v2_' + currentUserId);
       if (savedStr) {
         try {
-          const savedData = JSON.parse(savedStr);
-          if (savedData.vehicleType) {
-            document.getElementById('vehicleType').value = savedData.vehicleType;
-            renderChecklist(savedData); 
+          const memory = JSON.parse(savedStr);
+          if (memory.lastUsedType) {
+            document.getElementById('vehicleType').value = memory.lastUsedType;
+            // 帶入該車種專屬的記憶資料進行渲染
+            renderChecklist(memory.types[memory.lastUsedType]); 
           }
         } catch(e) { console.error("記憶讀取失敗", e); }
       }
     }
 
-    // 👉 儲存本機記憶
+    // 👉 儲存本機記憶 (升級版：依車種獨立分類儲存)
     function saveCurrentData() {
-      const savedData = {
-        vehicleType: document.getElementById('vehicleType').value,
-        vehicleId: document.getElementById('vehicleId').value,
-        answers: {}
-      };
+      const vTypeBase = document.getElementById('vehicleType').value;
+      const vId = document.getElementById('vehicleId').value;
+      
+      // 先把舊有的記憶庫整包拿出來 (避免覆蓋掉其他車種的記憶)
+      let memory = { lastUsedType: vTypeBase, types: {} };
+      try {
+        const savedStr = localStorage.getItem('dailyCheckMem_v2_' + currentUserId);
+        if (savedStr) memory = JSON.parse(savedStr);
+      } catch(e) {}
+      if (!memory.types) memory.types = {};
+      
+      // 把這次填寫的選項包裝起來
+      const answers = {};
       document.querySelectorAll('.question-input').forEach(input => {
-        savedData.answers[input.id] = input.value;
+        answers[input.id] = input.value;
       });
-      localStorage.setItem('dailyCheckData_' + currentUserId, JSON.stringify(savedData));
+      
+      // 更新這個車種的專屬抽屜
+      memory.lastUsedType = vTypeBase;
+      memory.types[vTypeBase] = {
+        vehicleId: vId,
+        answers: answers
+      };
+      
+      // 整包存回手機
+      localStorage.setItem('dailyCheckMem_v2_' + currentUserId, JSON.stringify(memory));
     }
 
-    window.renderChecklist = function(savedData = null) {
+    // 動態渲染畫面與車號
+    window.renderChecklist = function(providedData = null) {
       const vTypeBase = document.getElementById('vehicleType').value;
       const vType = vTypeBase.split(" ")[0]; 
       const squad = document.getElementById('squadName').value;
+      
+      // 👉 如果隊員是自己手動切換下拉選單 (沒有傳入 providedData)，就去記憶庫挖看看有沒有這個車種的記憶
+      let savedData = providedData;
+      if (!savedData) {
+        try {
+          const memory = JSON.parse(localStorage.getItem('dailyCheckMem_v2_' + currentUserId));
+          if (memory && memory.types && memory.types[vTypeBase]) {
+            savedData = memory.types[vTypeBase];
+          }
+        } catch(e) {}
+      }
       
       const sel = document.getElementById('vehicleId');
       sel.innerHTML = '<option value="">-- 請選擇車牌號碼 --</option>';
@@ -263,6 +293,7 @@
         container.innerHTML += html;
       });
 
+      // 還原這個車種上次勾選的狀態
       if (savedData && savedData.answers) {
         Object.keys(savedData.answers).forEach(qId => {
           const val = savedData.answers[qId];
@@ -357,14 +388,12 @@
       }).catch(err => Swal.fire('網路錯誤', '資料載入失敗', 'error'));
     }
 
-    // 👉 加上了錯誤偵測的 LIFF 初始化
     function initLiff() {
       liff.init({ liffId: LIFF_ID, withLoginOnExternalBrowser: true })
         .then(() => {
           if (!liff.isLoggedIn()) liff.login();
           else liff.getProfile().then(p => { currentUserId = p.userId; checkUser(p.userId); });
         }).catch(err => {
-          // 如果發生錯誤，紅字會直接顯示在畫面上
           document.getElementById('loading').innerHTML = "❌ LIFF 啟動失敗：<br>" + err.toString();
         });
     }
@@ -379,6 +408,7 @@
           document.getElementById('squadName').value = data.squad;
           document.getElementById('driverName').value = data.name;
           document.getElementById('checkForm').classList.remove('hidden');
+          // 👉 身份確認無誤後，讀取記憶
           loadSavedData();
         } else {
           const sel = document.getElementById('regSquad');
@@ -435,7 +465,9 @@
       .then(res => res.json())
       .then(result => {
         if (result.status === "Success") {
+          // 👉 傳送成功後，將本次的選擇存入該車種的專屬記憶抽屜
           saveCurrentData();
+          
           Swal.fire({
             icon: 'success', title: '✅ 送出成功！', text: '作業前自動檢查表已建檔完畢',
             confirmButtonColor: '#27ae60', confirmButtonText: '關閉視窗', allowOutsideClick: false
